@@ -1,0 +1,4 @@
+{"v":"happi/1.1","id":"f3","type":"started","ts":0}
+{"v":"happi/1.1","id":"f3","type":"delta","ts":0,"text":"hello"}
+{"v":"happi/1.1","id":"f3","type":"delta","ts":0,"text":"world"}
+{"v":"happi/1.1","id":"f3","type":"completed","ts":0}

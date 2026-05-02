@@ -1,0 +1,9 @@
+{"v":"happi/1.1","id":"f4","type":"started","ts":0}
+{"v":"happi/1.1","id":"f4","type":"delta","ts":0,"text":"HAPPI/1.1 - Harnessed-AI Polyglot Protocol Interface"}
+{"v":"happi/1.1","id":"f4","type":"delta","ts":0,"text":"One JSON envelope in (stdin), one NDJSON event stream out (stdout)."}
+{"v":"happi/1.1","id":"f4","type":"delta","ts":0,"text":"Envelope: {v, id, cmd, args?, flags?, auth?}"}
+{"v":"happi/1.1","id":"f4","type":"delta","ts":0,"text":"Events: started -> (delta|tool_call|tool_result|sub_request)* -> completed|error -> [idr]"}
+{"v":"happi/1.1","id":"f4","type":"delta","ts":0,"text":"v1.1: flags.audit=true emits idr terminator with sha256 of envelope+events"}
+{"v":"happi/1.1","id":"f4","type":"delta","ts":0,"text":"Cmds (this runtime): version, echo, spec.describe, envelope.validate, idr.emit"}
+{"v":"happi/1.1","id":"f4","type":"delta","ts":0,"text":"Reference: happi.md  Watermark: V>>--<<V"}
+{"v":"happi/1.1","id":"f4","type":"completed","ts":0}

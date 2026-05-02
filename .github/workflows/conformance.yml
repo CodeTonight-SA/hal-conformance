@@ -1,0 +1,33 @@
+name: conformance
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  reference-runtime:
+    name: reference (bash + python3 stdlib)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout hal-conformance
+        uses: actions/checkout@v4
+
+      - name: Checkout HAL (for reference happi.md)
+        uses: actions/checkout@v4
+        with:
+          repository: CodeTonight-SA/HAL
+          path: HAL
+
+      - name: Install jq
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq jq
+
+      - name: Make scripts executable
+        run: chmod +x conformance.sh runners/*.sh
+
+      - name: Run conformance against reference happi.md
+        env:
+          HAPPI_MD: ${{ github.workspace }}/HAL/happi.md
+        run: ./conformance.sh runners/reference.sh

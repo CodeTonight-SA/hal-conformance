@@ -1,0 +1,1 @@
+{"v":"happi/1.1","id":"f6","cmd":"echo","args":["audit","test"],"flags":{"audit":true,"model_versions":["claude-opus-4-7"]}}
