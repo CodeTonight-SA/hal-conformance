@@ -153,8 +153,47 @@ def inv_exactly_one_outcome(runner: list[str]) -> list[str]:
     return []
 
 
+def inv_context_follows_outcome(runner: list[str]) -> list[str]:
+    """spec: a context event is a TERMINATOR — it follows completed/error.
+
+    HAPPI.md CONTEXT section: "a non-streaming terminator emitted after
+    `completed`/`error`", and its falsification clause (b) names the exact
+    violation: "the `context` event arrives before `completed`/`error` (it
+    must be a terminator)".
+
+    Kept separate from the idr check rather than folded into it. The idr
+    check exits early when a runtime declines the opt-in audit flag, and
+    reusing that early exit would silently skip the context case too —
+    which is how this violation stayed invisible: every recorded fixture
+    was captured FROM the runtime that has the bug, so the byte comparison
+    agreed with it.
+    """
+    events, _ = dispatch(runner, {
+        "v": "happi/1.3", "id": "inv-ctx", "cmd": "context.append",
+        "args": ['{"decision":"probe","rationale":"ordering check"}'],
+        "flags": {"kind": "context-delta", "model_versions": ["test"]},
+    })
+    if unsupported(events):
+        raise NotImplementedByRuntime("context.append")
+    types = [e.get("type") for e in events]
+    if "context" not in types:
+        return ["context: context.append emitted no context event"]
+    outcome_at = next(
+        (i for i, t in enumerate(types) if t in ("completed", "error")), None)
+    if outcome_at is None:
+        return ["context: a context was emitted with no outcome event"]
+    if types.index("context") < outcome_at:
+        return [
+            "context: context was emitted BEFORE the outcome event "
+            f"(order: {' -> '.join(t or '?' for t in types)}). HAPPI.md "
+            "CONTEXT falsifier (b): it must be a terminator, emitted after "
+            "completed/error."
+        ]
+    return []
+
+
 def inv_records_follow_outcome(runner: list[str]) -> list[str]:
-    """spec: idr/context are emitted AFTER the outcome, never before it."""
+    """spec: idr is emitted AFTER the outcome, never before it."""
     events, _ = dispatch(runner, {
         "v": "happi/1.1", "id": "inv-idr", "cmd": "echo", "args": ["x"],
         "flags": {"audit": True, "model_versions": ["test"]},
@@ -233,7 +272,8 @@ INVARIANTS: list[tuple[str, Callable[[list[str]], list[str]]]] = [
     ("happi/1.0 envelope accepted (back-compat)", inv_v10_envelope_accepted),
     ("out-of-range version rejected", inv_out_of_range_version_rejected),
     ("exactly one outcome event", inv_exactly_one_outcome),
-    ("idr/context follow the outcome", inv_records_follow_outcome),
+    ("idr follows the outcome", inv_records_follow_outcome),
+    ("context follows the outcome", inv_context_follows_outcome),
     ("fabricated quote is never verified", inv_fabricated_quote_never_verified),
     ("strict mode gates the build", inv_strict_mode_fails_build),
 ]
