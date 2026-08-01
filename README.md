@@ -89,6 +89,36 @@ from stdin and emits NDJSON events on stdout. The HAPPI/1.0 axiom 1
 exec /path/to/your/hal-runtime "$@"
 ```
 
+## Two layers, and why both exist
+
+**Layer 1 — fixtures** (`./conformance.sh`) compare a runtime's output against
+recorded expected streams. Excellent at catching *divergence between
+implementations*.
+
+**Layer 2 — invariants** (`scripts/check-invariants.py`) assert properties taken
+from the **spec prose**, not from any recorded byte:
+
+```bash
+python3 scripts/check-invariants.py bash /tmp/happi.md run
+python3 scripts/check-invariants.py runners/hal-py.sh
+```
+
+Layer 2 exists because layer 1 alone is circular. The expected streams were
+recorded *from* the reference runtime, so if the reference regressed tomorrow
+and the fixtures were re-recorded, the suite would go green on the new wrong
+answer. The invariants cannot be re-recorded — they are the guarantees the spec
+states, so they fail on a reference regression that re-recording would hide.
+
+Currently asserted: a runtime reports its own version (not the envelope's); a
+`happi/1.0` envelope is accepted; an out-of-range version is rejected; exactly
+one outcome event per stream; `idr`/`context` follow the outcome; **a fabricated
+quote is never `verified` or `fuzzy`**; strict mode gates the build.
+
+That sixth one is the load-bearing check. It is verified to actually fail: a
+deliberately non-conforming runtime that marks fabricated quotes `verified` is
+caught with `cite: FABRICATED quote resolved to 'verified' — it must be
+not_found`. A check that cannot fail proves nothing.
+
 ## CI
 
 `.github/workflows/conformance.yml` currently obtains the reference runtime by
@@ -98,7 +128,18 @@ only — so that step cannot succeed without a PAT, and the workflow has failed
 on every run since it was added.
 
 The fix needs no credentials: `scripts/fetch-reference-runtime.sh` pulls the
-same runtime from its public gist mirror. Replace the HAL checkout step with:
+same runtime from its public gist mirror.
+
+**The download is checksum-pinned, and that is not optional.** The fetched file
+is then *executed* (`bash happi.md run`). Pulling an unpinned script over HTTPS
+and running it would make CI compromisable by anyone who can write to the gist —
+a stolen token becomes arbitrary code execution in a job that can read repo
+secrets. TLS authenticates the *server*; it says nothing about the *content*. So
+the content hash is pinned in the script, a mismatch is a hard failure, and
+updating the pin is a deliberate reviewable commit (`--print-sha` reads the
+current upstream value).
+
+Replace the HAL checkout step with:
 
 ```yaml
       - name: Fetch reference happi.md (public gist mirror)
