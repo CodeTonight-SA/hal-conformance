@@ -31,13 +31,15 @@ FAIL=0
 FAILED_NAMES=()
 
 # Strip ts field from each event line (timestamps are run-dependent).
+# The `|| true` matters: under `set -o pipefail` a non-zero jq propagates out
+# of the pipeline and `set -e` then aborts the entire run.
 strip_ts() {
-  jq -c 'del(.ts)' 2>/dev/null
+  jq -c 'del(.ts)' 2>/dev/null || true
 }
 
 # Strip volatile fields from idr_ref (sha256 depends on the run's ts buffer).
 strip_idr_volatile() {
-  jq -c 'if .type == "idr" then .idr_ref.sha256 = "<sha256>" else . end' 2>/dev/null
+  jq -c 'if .type == "idr" then .idr_ref.sha256 = "<sha256>" else . end' 2>/dev/null || true
 }
 
 for env_file in "$ENV_DIR"/*.json; do
@@ -61,7 +63,12 @@ for env_file in "$ENV_DIR"/*.json; do
     PASS=$((PASS + 1))
   else
     printf '[FAIL] %s\n' "$name"
-    diff <(printf '%s\n' "$expected") <(printf '%s\n' "$actual") | head -12
+    # `diff` exits 1 exactly when it finds a difference — which is the branch
+    # we are in. Without `|| true`, `set -o pipefail` plus `set -e` made the
+    # FIRST failing fixture kill the run: the remaining fixtures never
+    # executed and the summary below never printed, so a red suite reported
+    # one failure when it may have had six.
+    diff <(printf '%s\n' "$expected") <(printf '%s\n' "$actual") | head -12 || true
     FAIL=$((FAIL + 1))
     FAILED_NAMES+=("$name")
   fi
