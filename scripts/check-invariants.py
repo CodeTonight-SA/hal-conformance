@@ -33,6 +33,33 @@ FAKE_QUOTE = "bars the claim after three years"
 
 Events = list[dict[str, Any]]
 
+# A runtime that has not implemented a command answers with this error code.
+UNSUPPORTED_CMD = "unsupported_cmd"
+
+
+class NotImplementedByRuntime(Exception):
+    """The runtime does not implement the command this invariant probes.
+
+    Raised so the runner can report a THIRD state. Two states are not enough:
+    an unimplemented command still emits an `error` event and still exits
+    non-zero, which is byte-for-byte what a correctly-gating implementation
+    looks like from the outside. Collapsing that into HOLDS would let a
+    runtime score green on a feature it does not have — the exact theatre
+    these spec-level checks exist to prevent.
+    """
+
+    def __init__(self, cmd: str) -> None:
+        super().__init__(cmd)
+        self.cmd = cmd
+
+
+def unsupported(events: Events) -> bool:
+    """True if the runtime answered with an unsupported_cmd error."""
+    return any(
+        e.get("type") == "error" and e.get("code") == UNSUPPORTED_CMD
+        for e in events
+    )
+
 
 def dispatch(runner: list[str], envelope: dict[str, Any]) -> tuple[Events, int]:
     """Send one envelope, return (parsed events, exit code)."""
@@ -153,6 +180,8 @@ def inv_fabricated_quote_never_verified(runner: list[str]) -> list[str]:
     every byte-fixture had been re-recorded around it.
     """
     events, _ = dispatch(runner, cite_envelope(strict=False))
+    if unsupported(events):
+        raise NotImplementedByRuntime("cite.verify")
     completed = [e for e in events if e.get("type") == "completed"]
     if not completed:
         return ["cite: no completed event for cite.verify"]
@@ -179,8 +208,17 @@ def inv_fabricated_quote_never_verified(runner: list[str]) -> list[str]:
 
 
 def inv_strict_mode_fails_build(runner: list[str]) -> list[str]:
-    """spec: strict=true turns any not_found into an error + non-zero exit."""
+    """spec: strict=true turns any not_found into an error + non-zero exit.
+
+    Guarded by an unsupported-cmd check for a reason. A runtime that has not
+    implemented cite.verify at all ALSO emits an error and exits non-zero —
+    for `unsupported_cmd`. Without the guard this invariant reports HOLDS on a
+    runtime that cannot gate anything, which is worse than reporting nothing:
+    a check that passes because the feature is MISSING is false assurance.
+    """
     events, code = dispatch(runner, cite_envelope(strict=True))
+    if unsupported(events):
+        raise NotImplementedByRuntime("cite.verify")
     bad: list[str] = []
     if not any(e.get("type") == "error" for e in events):
         bad.append("cite-strict: a not_found citation did not emit an error event")
@@ -202,18 +240,33 @@ INVARIANTS: list[tuple[str, Callable[[list[str]], list[str]]]] = [
 
 
 def run_one(name: str, check: Callable[[list[str]], list[str]],
-            runner: list[str]) -> int:
-    """Run one invariant, print its result, return the violation count."""
+            runner: list[str]) -> tuple[int, int]:
+    """Run one invariant, print its result.
+
+    Returns (violations, skipped). Three outcomes, not two:
+
+      HOLDS           the property was tested and it held
+      NOT-IMPLEMENTED the command does not exist here, so nothing was tested
+      VIOLATION       the property was tested and it failed
+
+    NOT-IMPLEMENTED does not count as a violation (a runtime is allowed to
+    implement a subset) but it must never be printed as HOLDS either, or the
+    summary would claim coverage it does not have.
+    """
     try:
         found = check(runner)
+    except NotImplementedByRuntime as skip:
+        print(f"[NOT-IMPLEMENTED] {name}\n    runtime does not support "
+              f"{skip.cmd!r}; this property was NOT tested")
+        return 0, 1
     except Exception as exc:  # noqa: BLE001 — a crashing check IS a failure
         found = [f"{name}: check raised {type(exc).__name__}: {exc}"]
     if not found:
         print(f"[HOLDS] {name}")
-        return 0
+        return 0, 0
     detail = "\n".join(f"    {line}" for line in found)
     print(f"[VIOLATION] {name}\n{detail}")
-    return len(found)
+    return len(found), 0
 
 
 def main(argv: list[str]) -> int:
@@ -221,11 +274,16 @@ def main(argv: list[str]) -> int:
         print(__doc__, file=sys.stderr)
         return 2
     runner = argv[1:]
-    violations = sum(run_one(name, check, runner) for name, check in INVARIANTS)
+    results = [run_one(name, check, runner) for name, check in INVARIANTS]
+    violations = sum(v for v, _ in results)
+    skipped = sum(s for _, s in results)
 
     print("\n=== invariant summary ===")
     print(f"runner:     {' '.join(runner)}")
     print(f"invariants: {len(INVARIANTS)}")
+    print(f"tested:     {len(INVARIANTS) - skipped}")
+    if skipped:
+        print(f"untested:   {skipped} (command not implemented by this runtime)")
     print(f"violations: {violations}")
     return violations
 
