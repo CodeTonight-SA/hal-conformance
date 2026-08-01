@@ -1,0 +1,14 @@
+structural
+
+spec.describe asks a runtime to describe ITSELF. Its deltas include the line
+"Cmds (this runtime): ...", which is necessarily different for every
+implementation, because implementations support different commands.
+
+Byte-comparing this fixture would therefore require every runtime to recite
+the reference runtime's command list — to misreport its own capabilities in
+order to score as conforming. That is the opposite of what a conformance suite
+should reward, and it penalises a correct implementation for being honest.
+
+The property that genuinely holds across every conforming runtime is the
+shape: started, then one or more deltas, then an outcome. That is what is
+compared here.

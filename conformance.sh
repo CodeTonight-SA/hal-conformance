@@ -51,6 +51,37 @@ strip_idr_volatile() {
   jq -S -c 'if .type == "idr" then .idr_ref.sha256 = "<sha256>" else . end' 2>/dev/null || true
 }
 
+# Reduce a stream to its SHAPE: the sequence of event types, with runs of the
+# same type collapsed. "started, delta, delta, delta, completed" becomes
+# "started delta completed".
+#
+# Used only for fixtures whose output is a runtime describing ITSELF. The
+# obvious case is spec.describe, whose deltas list "Cmds (this runtime): ...".
+# Byte-comparing that across implementations asks every runtime to recite the
+# REFERENCE's command list — that is, to misreport its own capabilities in
+# order to score as conforming. A conformance suite must not reward that. The
+# property that genuinely holds for every conforming runtime is the shape:
+# started, then one or more deltas, then an outcome.
+#
+# This is deliberately the weaker comparison, applied narrowly. Everything
+# else stays a byte comparison, because for every other fixture the content IS
+# the contract.
+shape_only() {
+  jq -r '.type' 2>/dev/null | uniq || true
+}
+
+# A fixture opts into shape comparison with a sibling <name>.mode file
+# containing the word "structural". Kept next to the fixture so the weaker
+# check is visible to anyone reading it, never hidden in a central list.
+compare_mode() {
+  local mode_file="$EXP_DIR/$1.mode"
+  if [[ -f "$mode_file" ]] && grep -qi 'structural' "$mode_file"; then
+    printf 'structural'
+  else
+    printf 'exact'
+  fi
+}
+
 for env_file in "$ENV_DIR"/*.json; do
   name="$(basename "$env_file" .json)"
   expected_file="$EXP_DIR/$name.ndjson"
@@ -63,9 +94,15 @@ for env_file in "$ENV_DIR"/*.json; do
   # Run the runtime
   actual_raw="$("$RUNNER" < "$env_file" 2>/dev/null || true)"
 
-  # Normalise: strip ts, then strip idr.sha256 (run-dependent)
-  actual="$(printf '%s\n' "$actual_raw" | strip_ts | strip_idr_volatile)"
-  expected="$(strip_ts < "$expected_file" | strip_idr_volatile)"
+  mode="$(compare_mode "$name")"
+  if [[ "$mode" == "structural" ]]; then
+    actual="$(printf '%s\n' "$actual_raw" | shape_only)"
+    expected="$(shape_only < "$expected_file")"
+  else
+    # Normalise: strip ts, then strip idr.sha256 (run-dependent)
+    actual="$(printf '%s\n' "$actual_raw" | strip_ts | strip_idr_volatile)"
+    expected="$(strip_ts < "$expected_file" | strip_idr_volatile)"
+  fi
 
   if [[ "$actual" == "$expected" ]]; then
     printf '[PASS] %s\n' "$name"
