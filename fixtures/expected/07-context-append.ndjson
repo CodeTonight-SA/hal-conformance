@@ -1,0 +1,3 @@
+{"v":"happi/1.3","id":"f7","type":"started","ts":0}
+{"v":"happi/1.3","id":"f7","type":"completed","ts":0,"usage":{"content_addr":"sha256:84c0b0be810d70c7d1eb86e3609cbf0df9697a7a3b145e349332c8bb8133136f"}}
+{"v":"happi/1.3","id":"f7","type":"context","ts":0,"context_ref":{"sha256":"sha256:84c0b0be810d70c7d1eb86e3609cbf0df9697a7a3b145e349332c8bb8133136f","predecessor_context":null,"snapshot_ref":null,"kind":"context-delta","model_versions":["claude-opus-4-7"]}}

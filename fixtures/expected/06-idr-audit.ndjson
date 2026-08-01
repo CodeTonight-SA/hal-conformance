@@ -1,5 +1,5 @@
-{"v":"happi/1.1","id":"f6","type":"started","ts":0}
-{"v":"happi/1.1","id":"f6","type":"delta","ts":0,"text":"audit"}
-{"v":"happi/1.1","id":"f6","type":"delta","ts":0,"text":"test"}
-{"v":"happi/1.1","id":"f6","type":"completed","ts":0}
-{"v":"happi/1.1","id":"f6","type":"idr","ts":0,"idr_ref":{"sha256":"f45612136a6126b5d2622b9cfb40476be65695ac901d965052355cea4e6740b7","cid":null,"model_versions":["claude-opus-4-7"],"block_anchor":null}}
+{"v":"happi/1.3","id":"f6","type":"started","ts":0}
+{"v":"happi/1.3","id":"f6","type":"delta","ts":0,"text":"audit"}
+{"v":"happi/1.3","id":"f6","type":"delta","ts":0,"text":"test"}
+{"v":"happi/1.3","id":"f6","type":"completed","ts":0}
+{"v":"happi/1.3","id":"f6","type":"idr","ts":0,"idr_ref":{"sha256":"7c870272b6194ec4b1bed3c6e233a0c30d8997c09811cad95d73fe028fbfa9fa","cid":null,"model_versions":["claude-opus-4-7"],"block_anchor":null}}

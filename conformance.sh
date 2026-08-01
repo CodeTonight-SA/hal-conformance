@@ -30,14 +30,56 @@ PASS=0
 FAIL=0
 FAILED_NAMES=()
 
-# Strip ts field from each event line (timestamps are run-dependent).
+# Strip ts (timestamps are run-dependent) and SORT KEYS.
+#
+# Sorting matters as much as stripping. A JSON object is unordered by
+# definition, so two runtimes that emit the same event may serialise its keys
+# in different orders — Go's encoding/json sorts map keys alphabetically,
+# while the Python reference emits v,id,type,ts in declaration order. Without
+# -S, a byte comparison reports a semantically IDENTICAL event as a mismatch,
+# which would fail every conforming implementation that is not the reference
+# and make the whole suite meaningless as a cross-runtime check.
+#
+# The `|| true` matters: under `set -o pipefail` a non-zero jq propagates out
+# of the pipeline and `set -e` then aborts the entire run.
 strip_ts() {
-  jq -c 'del(.ts)' 2>/dev/null
+  jq -S -c 'del(.ts)' 2>/dev/null || true
 }
 
 # Strip volatile fields from idr_ref (sha256 depends on the run's ts buffer).
 strip_idr_volatile() {
-  jq -c 'if .type == "idr" then .idr_ref.sha256 = "<sha256>" else . end' 2>/dev/null
+  jq -S -c 'if .type == "idr" then .idr_ref.sha256 = "<sha256>" else . end' 2>/dev/null || true
+}
+
+# Reduce a stream to its SHAPE: the sequence of event types, with runs of the
+# same type collapsed. "started, delta, delta, delta, completed" becomes
+# "started delta completed".
+#
+# Used only for fixtures whose output is a runtime describing ITSELF. The
+# obvious case is spec.describe, whose deltas list "Cmds (this runtime): ...".
+# Byte-comparing that across implementations asks every runtime to recite the
+# REFERENCE's command list — that is, to misreport its own capabilities in
+# order to score as conforming. A conformance suite must not reward that. The
+# property that genuinely holds for every conforming runtime is the shape:
+# started, then one or more deltas, then an outcome.
+#
+# This is deliberately the weaker comparison, applied narrowly. Everything
+# else stays a byte comparison, because for every other fixture the content IS
+# the contract.
+shape_only() {
+  jq -r '.type' 2>/dev/null | uniq || true
+}
+
+# A fixture opts into shape comparison with a sibling <name>.mode file
+# containing the word "structural". Kept next to the fixture so the weaker
+# check is visible to anyone reading it, never hidden in a central list.
+compare_mode() {
+  local mode_file="$EXP_DIR/$1.mode"
+  if [[ -f "$mode_file" ]] && grep -qi 'structural' "$mode_file"; then
+    printf 'structural'
+  else
+    printf 'exact'
+  fi
 }
 
 for env_file in "$ENV_DIR"/*.json; do
@@ -52,16 +94,27 @@ for env_file in "$ENV_DIR"/*.json; do
   # Run the runtime
   actual_raw="$("$RUNNER" < "$env_file" 2>/dev/null || true)"
 
-  # Normalise: strip ts, then strip idr.sha256 (run-dependent)
-  actual="$(printf '%s\n' "$actual_raw" | strip_ts | strip_idr_volatile)"
-  expected="$(strip_ts < "$expected_file" | strip_idr_volatile)"
+  mode="$(compare_mode "$name")"
+  if [[ "$mode" == "structural" ]]; then
+    actual="$(printf '%s\n' "$actual_raw" | shape_only)"
+    expected="$(shape_only < "$expected_file")"
+  else
+    # Normalise: strip ts, then strip idr.sha256 (run-dependent)
+    actual="$(printf '%s\n' "$actual_raw" | strip_ts | strip_idr_volatile)"
+    expected="$(strip_ts < "$expected_file" | strip_idr_volatile)"
+  fi
 
   if [[ "$actual" == "$expected" ]]; then
     printf '[PASS] %s\n' "$name"
     PASS=$((PASS + 1))
   else
     printf '[FAIL] %s\n' "$name"
-    diff <(printf '%s\n' "$expected") <(printf '%s\n' "$actual") | head -12
+    # `diff` exits 1 exactly when it finds a difference — which is the branch
+    # we are in. Without `|| true`, `set -o pipefail` plus `set -e` made the
+    # FIRST failing fixture kill the run: the remaining fixtures never
+    # executed and the summary below never printed, so a red suite reported
+    # one failure when it may have had six.
+    diff <(printf '%s\n' "$expected") <(printf '%s\n' "$actual") | head -12 || true
     FAIL=$((FAIL + 1))
     FAILED_NAMES+=("$name")
   fi

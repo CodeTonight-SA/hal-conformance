@@ -1,0 +1,4 @@
+{"v":"happi/1.3","id":"f8","type":"started","ts":0}
+{"v":"happi/1.3","id":"f8","type":"delta","ts":0,"text":"c1 verified"}
+{"v":"happi/1.3","id":"f8","type":"delta","ts":0,"text":"c2 not_found"}
+{"v":"happi/1.3","id":"f8","type":"completed","ts":0,"usage":{"sources":{"s1":{"sha256":"f002d794e12482ce360234304e13f5e6e544cee41c203c7baaa9164c20da5a36","chars":55}},"citations":[{"id":"c1","source_id":"s1","status":"verified","start":24,"end":54},{"id":"c2","source_id":"s1","status":"not_found","start":-1,"end":-1}],"tally":{"verified":1,"fuzzy":0,"not_found":1},"grounding_rate":0.5}}
