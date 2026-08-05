@@ -10,12 +10,8 @@ Possibilities whitepaper: HAPPI Protocol & Possibilities (CodeTonight, April 202
 ## Quickstart
 
 ```bash
-# Fetch the reference runtime (public — no credentials needed)
-HAPPI_MD="$(scripts/fetch-reference-runtime.sh /tmp/happi.md)"
-export HAPPI_MD
-
-# Run the reference runtime against all fixtures
-./conformance.sh runners/reference.sh
+# Run the reference runtime (the pinned spec committed in this repo) against all fixtures
+HAPPI_MD="$PWD/spec/happi-1.3.md" ./conformance.sh runners/reference.sh
 
 # Run any HAPPI-compliant runtime
 ./conformance.sh runners/hal-py.sh
@@ -192,35 +188,23 @@ distinguishes "describes itself differently" from "does not have this command".
 
 ## CI
 
-`.github/workflows/conformance.yml` currently obtains the reference runtime by
-checking out `CodeTonight-SA/HAL` with `actions/checkout`. **HAL is a private
-repository**, and the default `GITHUB_TOKEN` is scoped to the current repo
-only — so that step cannot succeed without a PAT, and the workflow has failed
-on every run since it was added.
+`.github/workflows/conformance.yml` runs the suite against
+[`spec/happi-1.3.md`](spec/happi-1.3.md) — the exact reference spec, committed
+to this repository. CI is fully self-contained: no private-repo checkout, no
+network fetch, no credentials.
 
-The fix needs no credentials: `scripts/fetch-reference-runtime.sh` pulls the
-same runtime from its public gist mirror.
+**Why pin the spec in-repo?** A conformance suite certifies against a *fixed*
+spec version — "HAPPI/1.3-compliant" must mean the same thing on every run.
+Pinning the reference bytes (sha256 recorded in
+[`spec/README.md`](spec/README.md)) makes every CI run reproducible and makes
+bumping the pin a deliberate, reviewed change rather than a silent upstream
+drift. The pinned file is also *executed* (`bash happi.md run` — it is a
+polyglot spec), so committing the bytes removes the entire
+fetch-and-execute-remote-content risk class: what CI runs is what review saw.
 
-**The download is checksum-pinned, and that is not optional.** The fetched file
-is then *executed* (`bash happi.md run`). Pulling an unpinned script over HTTPS
-and running it would make CI compromisable by anyone who can write to the gist —
-a stolen token becomes arbitrary code execution in a job that can read repo
-secrets. TLS authenticates the *server*; it says nothing about the *content*. So
-the content hash is pinned in the script, a mismatch is a hard failure, and
-updating the pin is a deliberate reviewable commit (`--print-sha` reads the
-current upstream value).
-
-Replace the HAL checkout step with:
-
-```yaml
-      - name: Fetch reference happi.md (public gist mirror)
-        run: echo "HAPPI_MD=$(scripts/fetch-reference-runtime.sh "${{ runner.temp }}/happi.md")" >> "$GITHUB_ENV"
-```
-
-and drop the `HAPPI_MD: ${{ github.workspace }}/HAL/happi.md` env override on
-the conformance step. The script verifies the download actually dispatches
-before returning, so a broken fetch fails loudly instead of being reported as
-a protocol failure.
+For running against a *different* spec revision locally, set
+`HAPPI_MD=/path/to/happi.md`. `scripts/fetch-reference-runtime.sh` can still
+fetch the checksum-pinned public gist mirror for that purpose.
 
 ## Origin
 
@@ -230,4 +214,11 @@ possibilities whitepaper §10.2 ("Provider Certification") motivated the
 
 ## Licence
 
-MIT. See [LICENSE](LICENSE).
+GNU Affero General Public License v3.0 only (AGPL-3.0-only). See
+[LICENSE](LICENSE).
+
+Copyright (C) 2024-2026 Lourens Cornelius Scheepers / CodeTonight (Pty) Ltd
+
+If you run a modified version of this software as a network service, the AGPL
+requires you to offer the complete corresponding source of your modified
+version to the users of that service.
