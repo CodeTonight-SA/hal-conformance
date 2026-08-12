@@ -1,0 +1,10 @@
+{"v":"happi/1.3","id":"compose-1","type":"started","ts":0}
+{"v":"happi/1.3","id":"compose-1","type":"sub_request","ts":0,"envelope":{"v":"happi/1.3","id":"child-a","cmd":"version"}}
+{"v":"happi/1.3","id":"child-a","type":"started","ts":0}
+{"v":"happi/1.3","id":"child-a","type":"delta","ts":0,"text":"happi/1.3"}
+{"v":"happi/1.3","id":"child-a","type":"completed","ts":0}
+{"v":"happi/1.3","id":"compose-1","type":"sub_request","ts":0,"envelope":{"v":"happi/1.0","id":"child-b","cmd":"echo","args":["fractal"]}}
+{"v":"happi/1.3","id":"child-b","type":"started","ts":0}
+{"v":"happi/1.3","id":"child-b","type":"delta","ts":0,"text":"fractal"}
+{"v":"happi/1.3","id":"child-b","type":"completed","ts":0}
+{"v":"happi/1.3","id":"compose-1","type":"completed","ts":0,"usage":{"children":2}}

@@ -28,7 +28,9 @@ EXP_DIR="$SCRIPT_DIR/fixtures/expected"
 
 PASS=0
 FAIL=0
+UNIMPL=0
 FAILED_NAMES=()
+UNIMPL_NAMES=()
 
 # Strip ts (timestamps are run-dependent) and SORT KEYS.
 #
@@ -70,6 +72,28 @@ shape_only() {
   jq -r '.type' 2>/dev/null | uniq || true
 }
 
+# Did the runtime answer "I do not have this command"?
+#
+# A runtime is allowed to implement a SUBSET of HAPPI, so a fixture for a cmd it
+# lacks must not be scored as a failure — that is a false red, and it punishes an
+# honest partial implementation exactly as hard as a wrong one.
+#
+# It must not be scored as a PASS either. The invariant layer already learned this
+# lesson the hard way (see "Three results, not two" in the README): an unimplemented
+# cmd still emits an `error` and still exits non-zero, which from the outside is
+# byte-identical to a correctly-gating implementation. Reporting that as success
+# claims coverage the run does not have.
+#
+# So it gets its own state. Counted separately, printed distinctly, and excluded
+# from the exit status — which stays the count of genuine failures.
+#
+# Guarded by the expected stream: a fixture whose EXPECTED output is itself an
+# unsupported_cmd error is testing the error path on purpose, so it is compared
+# normally rather than being excused.
+answered_unsupported_cmd() {
+  printf '%s\n' "$1" | jq -e -s 'any(.[]; .type == "error" and .code == "unsupported_cmd")' >/dev/null 2>&1
+}
+
 # A fixture opts into shape comparison with a sibling <name>.mode file
 # containing the word "structural". Kept next to the fixture so the weaker
 # check is visible to anyone reading it, never hidden in a central list.
@@ -93,6 +117,14 @@ for env_file in "$ENV_DIR"/*.json; do
 
   # Run the runtime
   actual_raw="$("$RUNNER" < "$env_file" 2>/dev/null || true)"
+
+  if answered_unsupported_cmd "$actual_raw" \
+     && ! answered_unsupported_cmd "$(cat "$expected_file")"; then
+    printf '[NOT-IMPLEMENTED] %s — runtime does not support this cmd; nothing was tested\n' "$name"
+    UNIMPL=$((UNIMPL + 1))
+    UNIMPL_NAMES+=("$name")
+    continue
+  fi
 
   mode="$(compare_mode "$name")"
   if [[ "$mode" == "structural" ]]; then
@@ -124,6 +156,9 @@ printf '\n=== conformance summary ===\n'
 printf 'runner:  %s\n' "$RUNNER"
 printf 'passed:  %d\n' "$PASS"
 printf 'failed:  %d\n' "$FAIL"
+if (( UNIMPL > 0 )); then
+  printf 'untested: %d (cmd not implemented: %s)\n' "$UNIMPL" "${UNIMPL_NAMES[*]}"
+fi
 if (( FAIL > 0 )); then
   printf 'failures: %s\n' "${FAILED_NAMES[*]}"
 fi

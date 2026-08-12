@@ -97,6 +97,21 @@ def cite_envelope(strict: bool) -> dict[str, Any]:
     return {"v": "happi/1.3", "id": "inv-cite", "cmd": "cite.verify", "flags": flags}
 
 
+def compose_envelope(*children: dict[str, Any], envelope_id: str = "inv-compose") -> dict[str, Any]:
+    """Build a compose envelope carrying the given child envelopes."""
+    return {"v": "happi/1.3", "id": envelope_id, "cmd": "compose",
+            "flags": {"envelopes": list(children)}}
+
+
+def outcomes_by_id(events: Events) -> dict[str, list[str]]:
+    """Map envelope id -> the outcome event types emitted for it."""
+    seen: dict[str, list[str]] = {}
+    for e in events:
+        if e.get("type") in ("completed", "error"):
+            seen.setdefault(str(e.get("id")), []).append(str(e.get("type")))
+    return seen
+
+
 # --- invariants -------------------------------------------------------------
 # Each returns a list of violation strings (empty list = the invariant holds).
 
@@ -267,6 +282,115 @@ def inv_strict_mode_fails_build(runner: list[str]) -> list[str]:
     return bad
 
 
+def inv_sub_request_recurses_through_same_runtime(runner: list[str]) -> list[str]:
+    """spec axiom 3: "`sub_request` recurses through the same runtime. The
+    protocol is fractal; no privileged inner interface."
+
+    The wording is a claim about the code path, and a code path is not visible
+    from outside — so this checks the consequences that only a SHARED path can
+    produce, rather than checking that a `sub_request` event appeared.
+
+    A runtime could emit `sub_request` and then serve the child from a private
+    inner handler. For one level, on the wire, that is indistinguishable. What
+    is NOT indistinguishable is how the child fails: routed through the same
+    validator and the same handler table, a child must be refused for exactly
+    the reasons, and with exactly the codes, that the same bytes would be
+    refused for arriving on stdin. So the child here is deliberately given an
+    out-of-range version, and its error is compared against dispatching that
+    identical envelope at the top level. A relaxed inner path diverges here.
+
+    Also asserted, from the spec's own event table
+    ("| `sub_request` | `envelope` | Child HAPPI envelope dispatched |"), that
+    the marker carries the child under the field name `envelope`.
+    """
+    child = {"v": "happi/1.3", "id": "inv-kid", "cmd": "version"}
+    events, _ = dispatch(runner, compose_envelope(child))
+    if unsupported(events):
+        raise NotImplementedByRuntime("compose")
+
+    bad: list[str] = []
+
+    markers = [e for e in events if e.get("type") == "sub_request"]
+    if not markers:
+        return ["sub_request: compose emitted no sub_request event"]
+    if "envelope" not in markers[0]:
+        bad.append(
+            f"sub_request: marker has no `envelope` field (got "
+            f"{sorted(k for k in markers[0] if k not in ('v', 'id', 'type', 'ts'))}). "
+            "The event table names the payload field `envelope`."
+        )
+
+    # The child's OWN events must be inlined into the parent stream — that is
+    # what "recurses through the same runtime" produces, as against a runtime
+    # that merely announces a child it then handles out of band.
+    child_events = [e for e in events if e.get("id") == "inv-kid"]
+    if not child_events:
+        return bad + ["sub_request: the child produced no events in the stream"]
+    if not any(e.get("type") == "completed" for e in child_events):
+        bad.append("sub_request: the child never reached an outcome")
+
+    # Back-compat must hold THROUGH recursion, not just at the top level.
+    parent_version = events[0].get("v")
+    child_versions = {e.get("v") for e in child_events}
+    if child_versions != {parent_version}:
+        bad.append(
+            f"sub_request: child events carry {child_versions}, parent carries "
+            f"{parent_version!r} — a child must be stamped by the same runtime"
+        )
+
+    # THE discriminator: same validator, or a privileged inner one?
+    rejected = {"v": "happi/0.9", "id": "inv-old", "cmd": "version"}
+    top_events, _ = dispatch(runner, rejected)
+    top_err = next((e for e in top_events if e.get("type") == "error"), None)
+    nested_events, _ = dispatch(runner, compose_envelope(rejected))
+    nested_err = next((e for e in nested_events if e.get("type") == "error"), None)
+    if top_err is None:
+        bad.append("sub_request: cannot compare — an out-of-range version was "
+                   "accepted at the top level")
+    elif nested_err is None:
+        bad.append(
+            "sub_request: an out-of-range version was REFUSED at the top level "
+            "but ACCEPTED as a child. The child is not going through the same "
+            "validator, which is the privileged inner interface axiom 3 forbids."
+        )
+    elif top_err.get("code") != nested_err.get("code"):
+        bad.append(
+            f"sub_request: the same bad envelope yields {top_err.get('code')!r} "
+            f"at the top level and {nested_err.get('code')!r} as a child; a "
+            "shared dispatch path must produce one verdict, not two."
+        )
+    return bad
+
+
+def inv_one_outcome_per_envelope_id(runner: list[str]) -> list[str]:
+    """spec: exactly one outcome event per envelope — per ID, not per stream.
+
+    The existing "exactly one outcome event" invariant probes a flat `version`
+    dispatch, where stream and envelope coincide. Recursion separates them: a
+    compose stream carries the parent's outcome AND every child's, so counting
+    per stream is wrong the moment the protocol is used fractally. The property
+    that survives is per id, and this asserts that stronger form.
+    """
+    events, _ = dispatch(runner, compose_envelope(
+        {"v": "happi/1.3", "id": "inv-c1", "cmd": "version"},
+        {"v": "happi/1.0", "id": "inv-c2", "cmd": "echo", "args": ["x"]},
+    ))
+    if unsupported(events):
+        raise NotImplementedByRuntime("compose")
+    bad: list[str] = []
+    seen = outcomes_by_id(events)
+    for env_id, got in sorted(seen.items()):
+        if len(got) != 1:
+            bad.append(
+                f"outcome-per-id: envelope {env_id!r} terminated {len(got)} "
+                f"times ({', '.join(got)}); each id must terminate exactly once"
+            )
+    for expected_id in ("inv-compose", "inv-c1", "inv-c2"):
+        if expected_id not in seen:
+            bad.append(f"outcome-per-id: envelope {expected_id!r} never terminated")
+    return bad
+
+
 INVARIANTS: list[tuple[str, Callable[[list[str]], list[str]]]] = [
     ("runtime reports its own version", inv_runtime_reports_own_version),
     ("happi/1.0 envelope accepted (back-compat)", inv_v10_envelope_accepted),
@@ -276,6 +400,9 @@ INVARIANTS: list[tuple[str, Callable[[list[str]], list[str]]]] = [
     ("context follows the outcome", inv_context_follows_outcome),
     ("fabricated quote is never verified", inv_fabricated_quote_never_verified),
     ("strict mode gates the build", inv_strict_mode_fails_build),
+    ("sub_request recurses through the same runtime",
+     inv_sub_request_recurses_through_same_runtime),
+    ("exactly one outcome per envelope id", inv_one_outcome_per_envelope_id),
 ]
 
 
