@@ -222,3 +222,6 @@ Copyright (C) 2024-2026 Lourens Cornelius Scheepers / CodeTonight (Pty) Ltd
 If you run a modified version of this software as a network service, the AGPL
 requires you to offer the complete corresponding source of your modified
 version to the users of that service.
+
+**Commercial licences.** If the AGPL's network-use obligation does not fit your
+deployment, a commercial licence is available — contact licensing@codetonight.co.za.
