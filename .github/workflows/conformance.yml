@@ -25,3 +25,14 @@ jobs:
         env:
           HAPPI_MD: ${{ github.workspace }}/spec/happi-1.3.md
         run: ./conformance.sh runners/reference.sh
+
+      # Layer 2. The README calls this "the non-circular half" and it is the
+      # layer that caught a real bug in the reference, yet it was never run
+      # here — so every invariant, including the ones that found something,
+      # was documentation rather than a gate. Exit status is the count of
+      # VIOLATIONS; NOT-IMPLEMENTED does not fail the build, because a runtime
+      # is allowed to implement a subset.
+      - name: Run spec-level invariants against pinned reference spec
+        env:
+          HAPPI_MD: ${{ github.workspace }}/spec/happi-1.3.md
+        run: python3 scripts/check-invariants.py runners/reference.sh

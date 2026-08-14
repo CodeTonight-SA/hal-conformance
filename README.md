@@ -63,6 +63,7 @@ they are compared exactly.
 | 07-context-append | context.append | 1.2 | v1.1/1.2 memory-chain `context` record |
 | 08-cite-verify | cite.verify | 1.3 | v1.3 citation provenance — one real quote, one fabricated |
 | 09-cite-verify-strict | cite.verify | 1.3 | Strict mode: a fabricated quote must emit `error` and exit non-zero |
+| 10-compose-sub-request | compose | 1.3 | Axiom 3 — a parent envelope recursing through the same runtime, with each child's events inlined behind a `sub_request` marker |
 
 Fixtures 08–09 are the load-bearing v1.3 pair. A runtime passes only if a quote
 absent from its source resolves to `not_found` — never `verified` or `fuzzy`.
@@ -70,9 +71,8 @@ That is the guarantee `cite.verify` exists to provide, so a runtime that fudges
 it is not HAPPI-compliant.
 
 Still to add: error cases (`parse_error`, `unsupported_cmd`, `runtime_error`),
-the `idr.emit` cmd, `sub_request` recursion, data_residency / cost_governance
-flags, and adversarial inputs (oversized envelopes, malformed JSON, unicode
-edge cases).
+the `idr.emit` cmd, data_residency / cost_governance flags, and adversarial
+inputs (oversized envelopes, malformed JSON, unicode edge cases).
 
 ## Adding a runner
 
@@ -109,16 +109,68 @@ Currently asserted: a runtime reports its own version (not the envelope's); a
 `happi/1.0` envelope is accepted; an out-of-range version is rejected; exactly
 one outcome event per stream; `idr` follows the outcome; `context` follows the
 outcome; **a fabricated quote is never `verified` or `fuzzy`**; strict mode
-gates the build.
+gates the build; **`sub_request` recurses through the same runtime**; exactly
+one outcome per envelope **id**.
 
 The `cite` one is load-bearing, and it is verified to actually fail: a
 deliberately non-conforming runtime that marks fabricated quotes `verified` is
 caught with `cite: FABRICATED quote resolved to 'verified' — it must be
 not_found`. A check that cannot fail proves nothing.
 
+The `sub_request` one is load-bearing for the same reason, and is the harder of
+the two to check honestly. Axiom 3 says the protocol is fractal with *no
+privileged inner interface* — a claim about the code path, which is not visible
+from outside. A runtime can emit a flawless `sub_request` event and then serve
+the child from a private handler; for one level, on the wire, that is
+indistinguishable. So asking "did a `sub_request` appear?" tests nothing.
+
+What a shared path cannot fake is how a child FAILS. The invariant hands the
+runtime an out-of-range version twice — once on stdin, once as a child — and
+requires the same verdict. A relaxed inner path diverges immediately.
+
+Verified to fail, three ways, each against a runtime that implements `compose`
+so the check is genuinely reached rather than skipped
+(`scripts/nonconforming/privileged-inner-interface.py`):
+
+| Mutation | Reported |
+|---|---|
+| child served by a private handler that skips validation | `an out-of-range version was REFUSED at the top level but ACCEPTED as a child` |
+| marker carries the child as `child` instead of `envelope` | `marker has no \`envelope\` field (got ['child'])` |
+| parent emits both `error` and `completed` | `envelope 'inv-compose' terminated 2 times (error, completed)` |
+
+### One outcome per envelope ID, not per stream
+
+Recursion separates two things that used to coincide. A `compose` stream carries
+the parent's outcome and every child's, so the older "exactly one outcome event"
+check — which probes a flat `version` dispatch — is correct but no longer
+sufficient. The property that survives contact with the fractal case is per
+envelope id, and it is now asserted in that stronger form. A client counting
+outcomes per stream misreads every recursive stream.
+
+### A note on the `sub_request` payload field
+
+The event table in the spec names the field `envelope`:
+
+| `sub_request` | `envelope` | Child HAPPI envelope dispatched |
+
+`lib/hal/happi/events.py` in the HAL repo emits it as `child`. The invariant
+asserts the spec's name, because axiom 4 makes that document the contract. This
+is a real divergence between the spec and a shipped library, surfaced rather
+than accommodated — an invariant written to accept both could never fail on the
+thing it just found.
+
 ### Three results, not two
 
 A check reports `HOLDS`, `VIOLATION`, or `NOT-IMPLEMENTED`.
+
+**Layer 1 now has the same three states**, for the mirror-image reason. A runtime
+is allowed to implement a subset of HAPPI, so scoring a fixture as `FAIL` because
+the command does not exist is a false red — it punishes an honest partial
+implementation exactly as hard as a wrong answer. It is reported as
+`[NOT-IMPLEMENTED]`, counted separately, and excluded from the exit status, which
+remains the count of genuine failures. It is never counted as a pass. A fixture
+whose *expected* output is itself an `unsupported_cmd` error is compared normally
+rather than excused.
 
 The third exists because a runtime that has not implemented a command still
 answers with an `error` event and still exits non-zero — for `unsupported_cmd`.
@@ -150,6 +202,14 @@ Scores as a result:
 | reference | 9/9 | 7/8 — fails context ordering |
 | hal-py | 8/9 — fails 07 | 8/8 |
 | hal-go | 8/9 — fails 07 | 8/8 |
+
+**That table is out of date for the reference row.** Re-measured against the
+pinned spec on 2026-08-12, `context follows the outcome` now reports `[HOLDS]`,
+so the reference scores 8/8 on the invariants it is subject to — the ordering
+bug described above has since been fixed upstream. The hal-py and hal-go rows
+are left as recorded: those runners are stubs that exit 2 unless the SDK is
+installed, so nothing was re-measured for them here and no claim is made either
+way.
 
 Two implementations written independently from the spec satisfy every property
 the spec states. The one that violates a property is the reference — which is
@@ -192,6 +252,28 @@ distinguishes "describes itself differently" from "does not have this command".
 [`spec/happi-1.3.md`](spec/happi-1.3.md) — the exact reference spec, committed
 to this repository. CI is fully self-contained: no private-repo checkout, no
 network fetch, no credentials.
+
+### Pin status for the `sub_request` coverage
+
+Fixture `10-compose-sub-request` and the two `sub_request` invariants report
+`NOT-IMPLEMENTED` against the spec currently pinned in `spec/happi-1.3.md`,
+because that build of the reference has no `compose` cmd. That is the correct
+reading, not a gap being papered over: the property genuinely was not tested,
+and it is reported as untested rather than as a pass.
+
+They turn into a real `PASS`/`HOLDS` the moment the pin is bumped to a reference
+build that implements it — verified locally against the branch behind
+[HAL#523](https://github.com/CodeTonight-SA/HAL/pull/523), which scores 10/10
+fixtures and 10/10 invariants.
+
+The pin is deliberately **not** bumped in this change. Bumping it is its own
+reviewed step, it has to happen after HAL#523 merges, and doing it here would
+tie this suite to an unmerged branch.
+
+Worth noting while looking at the pin: it is already behind. `spec/happi-1.3.md`
+is `29ccfadf…`, while HAL `origin/main` currently carries `600fb8e4…`, so the
+line above describing the pin as exported byte-for-byte from `origin/main` is
+true of when it was taken rather than of today.
 
 **Why pin the spec in-repo?** A conformance suite certifies against a *fixed*
 spec version — "HAPPI/1.3-compliant" must mean the same thing on every run.

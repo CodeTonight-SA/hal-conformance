@@ -1,0 +1,1 @@
+{"v":"happi/1.3","id":"compose-1","cmd":"compose","flags":{"envelopes":[{"v":"happi/1.3","id":"child-a","cmd":"version"},{"v":"happi/1.0","id":"child-b","cmd":"echo","args":["fractal"]}]}}
