@@ -324,10 +324,13 @@ Falsification conditions for each axiom are recorded in
 | `hypothesis.register` | 1.1 | Append a falsifiable hypothesis to NDJSON log (default `~/.hal/data/hypotheses.jsonl`; override `HAL_HYPOTHESES_PATH`). Required: `args[0]` ID; `flags.{claim,metric,prediction,deadline}` |
 | `quine.spawn` | 1.1 | Spawn child HAPPI seed issue from parent (`#233` fractal pattern). Required: `flags.parent_issue` (int), `flags.repo` (str). DRY-RUN unless `flags.live=true`. Generation counter parsed from parent title (`generation N`); child title bumps to N+1. Capped by `flags.depth_limit` (default `16`; env override `HAPPI_QUINE_DEPTH_MAX`). LIVE mode requires `gh` CLI authenticated for the target repo. |
 | `cite.verify` | 1.3 | Deterministically verify each citation's `quote` is verbatim in its cited source (the un-fakeable provenance floor). Required: `flags.sources` `[{id,text}]`, `flags.citations` `[{id,source_id,quote}]`. Optional `flags.strict=true` → any `not_found` emits `error` (build-gate). `completed.usage` carries the provenance record (per-source sha256, per-citation status+offsets, tally, grounding_rate). |
+| `compose` | 1.3 | Dispatch each child envelope in `flags.envelopes` through this same runtime. Emits one `sub_request` per child, then inlines that child's own events into the parent stream (axiom 3). Children are validated and dispatched by the same `parse_envelope`/`dispatch` pair that serves stdin, so a child fails exactly as the same bytes would have failed at the top level. Recursion is capped at 8; exceeding it emits `error` with code `sub_request_depth_cap`. |
 
 Audit terminator: setting `flags.audit=true` on the input envelope causes the runtime to emit an `idr` event after `completed`/`error`. **Context event:** `cmd: context.append` emits a `context` event content-addressing a supplied decision body (excluding `id`/`ts`/`audit`); the stdlib runtime does not auto-emit `context` on a `flags.context` flag (HAL #429), so a `flags.audit` `idr` and a `context.append` `context` are independent. Stdlib-only — no extra dependencies for any cmd (`quine.spawn` LIVE mode additionally requires the `gh` CLI; DRY-RUN does not).
 
-**Embedded runtime — emission profile** — this stdlib runtime emits `started`, `delta`, `completed`, `error`, (when `flags.audit=true` or `cmd: idr.emit`) `idr`, and (when `cmd: context.append`) `context`. It does not emit `tool_call`, `tool_result`, or `sub_request` events; those are reserved for richer runtimes (e.g. `lib/hal/happi/` providers, future tool integrations) that conform to the same protocol surface.
+**Embedded runtime — emission profile** — this stdlib runtime emits `started`, `delta`, `completed`, `error`, (when `cmd: compose`) `sub_request`, (when `flags.audit=true` or `cmd: idr.emit`) `idr`, and (when `cmd: context.append`) `context`. It does not emit `tool_call` or `tool_result` events; those are reserved for richer runtimes (e.g. `lib/hal/happi/` providers, future tool integrations) that conform to the same protocol surface.
+
+**Recursion — one outcome per envelope, not per stream.** A `compose` stream carries the parent's events and every child's events interleaved, so it contains more than one `completed`/`error`. The invariant is per envelope `id`: each id that appears in a stream terminates exactly once. A client that counts outcomes per stream rather than per id will misread any recursive stream.
 
 ---
 
@@ -414,6 +417,19 @@ a valid `completed` event, the file has failed its own first test.
 
 ---
 
+<!-- happi:label=licence -->
+## Licence
+
+This specification and its embedded runtime are free software, licensed under
+the GNU Affero General Public License, version 3 only (AGPL-3.0-only). If you
+run a modified version as a network service, that counts as distribution — the
+users of that service must be offered the modified source. Commercial licences
+are available via licensing@codetonight.co.za.
+
+Copyright (C) 2024-2026 Lourens Cornelius Scheepers / CodeTonight (Pty) Ltd
+
+---
+
 *The protocol is stable; the possibilities are not.*
 *Canonical reference: `happi.md` · V>>--<<V*
 
@@ -469,6 +485,13 @@ _AUDIT_ENABLED = False
 _AUDIT_BUFFER = []
 _AUDIT_MODEL_VERSIONS = []
 
+# Recursion bound for `compose` (axiom 3). A child envelope may itself be a
+# `compose`, so the fractal is unbounded by construction; this caps it. Mirrors
+# lib/hal/happi/runtime.py::MAX_SUB_REQUEST_DEPTH so both runtimes refuse at the
+# same depth with the same error code.
+MAX_SUB_REQUEST_DEPTH = 8
+_SUB_DEPTH = 0
+
 # Volatile fields excluded from a content address (v1.1 context event) — mirrors
 # GRIP lib/precog/idr.py::_CONTENT_ADDR_EXCLUDE (the cross-runtime invariant).
 _CONTENT_ADDR_EXCLUDE = ("id", "ts", "audit")
@@ -505,6 +528,18 @@ def emit_completed(req_id, usage=None):
 def emit_error(req_id, code, message):
     _emit({"v": HAPPI_VERSION, "id": req_id, "type": "error",
            "ts": _ts_ms(), "code": code, "message": message})
+
+
+def emit_sub_request(req_id, child):
+    """Emit the marker that precedes a child envelope's inlined events.
+
+    Field name is `envelope`, per the event table in this same document
+    ("| `sub_request` | `envelope` | Child HAPPI envelope dispatched |").
+    Axiom 4 makes this document the contract, so the wire field follows the
+    table rather than any implementation's local choice.
+    """
+    _emit({"v": HAPPI_VERSION, "id": req_id, "type": "sub_request",
+           "ts": _ts_ms(), "envelope": child})
 
 
 def emit_idr(req_id, envelope_raw):
@@ -689,11 +724,12 @@ _SPEC_LINES = [
     "One JSON envelope in (stdin), one NDJSON event stream out (stdout).",
     "Envelope: {v, id, cmd, args?, flags?, auth?}",
     "Events: started -> (delta|tool_call|tool_result|sub_request)* -> completed|error -> [idr]",
+    "v1.3: cmd compose dispatches child envelopes through this same runtime (axiom 3), emitting sub_request per child",
     "v1.1: flags.audit=true emits idr terminator with sha256 of envelope+events",
     "v1.1: cmd context.append emits a context terminator content-addressing a decision body (excl id/ts/audit)",
     "v1.3: flags.validate_decision=true on context.append validates the body decision slot against the shared Decision schema (tiered: deterministic minimal, delegated externally-checkable; SMT surface-graft rejection)",
     "v1.3: cmd cite.verify deterministically checks each citation quote is verbatim in its source (un-fakeable provenance floor)",
-    "Cmds (this runtime): version, cite.verify, echo, spec.describe, envelope.validate, idr.emit, context.append, pr.reference, hypothesis.register, quine.spawn",
+    "Cmds (this runtime): version, cite.verify, compose, echo, spec.describe, envelope.validate, idr.emit, context.append, pr.reference, hypothesis.register, quine.spawn",
     "Reference: happi.md  Watermark: V>>--<<V",
 ]
 
@@ -1139,8 +1175,73 @@ def cmd_cite_verify(env):
     return 0
 
 
+def cmd_compose(env):
+    """Dispatch every child envelope in `flags.envelopes` through THIS runtime.
+
+    Axiom 3 — "`sub_request` recurses through the same runtime. The protocol is
+    fractal; no privileged inner interface."
+
+    That axiom is a claim about the CODE PATH, so this handler is written to make
+    it checkable rather than merely asserted:
+
+      * a child is validated by `parse_envelope`, the same validator that
+        accepted the envelope arriving on stdin;
+      * a child is dispatched by `dispatch`, the same function `main` calls.
+
+    There is deliberately no child-only parser, no child-only handler table and
+    no relaxed validation. A child that is malformed, carries an out-of-range
+    version, or names an unknown cmd fails exactly as the same bytes would have
+    failed on stdin. Consequently a `compose` stream carries one outcome event
+    per envelope id, not one per stream.
+    """
+    global _SUB_DEPTH
+    children = (env.get("flags") or {}).get("envelopes")
+    if not isinstance(children, list):
+        emit_error(env["id"], "parse_error",
+                   "compose: 'flags.envelopes' must be an array of envelopes")
+        return 1
+    if _SUB_DEPTH >= MAX_SUB_REQUEST_DEPTH:
+        emit_error(env["id"], "sub_request_depth_cap",
+                   "sub_request depth cap reached (" +
+                   str(MAX_SUB_REQUEST_DEPTH) + "); refusing to recurse further")
+        return 1
+
+    rc = 0
+    dispatched = 0
+    for child in children:
+        # A child that will not PARSE is a defect in the request payload of
+        # the parent itself, exactly like `flags.envelopes` not being a list, so it
+        # terminates the parent with a single `error` and no `completed`.
+        # A child that parses but then FAILS (unknown cmd, handler error) is a
+        # different thing: it reports on its OWN id and the parent still
+        # completes. Keeping these apart is what preserves the invariant that
+        # every envelope id in a stream terminates exactly once.
+        if not isinstance(child, dict):
+            emit_error(env["id"], "parse_error",
+                       "compose: child must be a JSON object, got " +
+                       type(child).__name__)
+            return 1
+        child_env, child_err = parse_envelope(json.dumps(child))
+        if child_env is None:
+            emit_error(env["id"], "parse_error",
+                       "compose: invalid child envelope: " + str(child_err))
+            return 1
+        emit_sub_request(env["id"], child_env)
+        _SUB_DEPTH += 1
+        try:
+            child_rc = dispatch(child_env)
+        finally:
+            _SUB_DEPTH -= 1
+        dispatched += 1
+        if child_rc != 0:
+            rc = child_rc
+    emit_completed(env["id"], {"children": dispatched})
+    return rc
+
+
 CMDS = {
     "version": cmd_version,
+    "compose": cmd_compose,
     "cite.verify": cmd_cite_verify,
     "echo": cmd_echo,
     "spec.describe": cmd_spec_describe,
@@ -1165,6 +1266,38 @@ def _emit_terminators(env, raw):
         emit_idr(env["id"], raw)
 
 
+def dispatch(env):
+    """Dispatch ONE parsed envelope: started -> handler -> completed|error.
+
+    The single entry point for every envelope this runtime serves, whichever
+    direction it arrived from: `main` calls it for the envelope read from stdin,
+    and `cmd_compose` calls it for each child envelope. That shared call is what
+    makes axiom 3 true rather than merely stated — there is no second, inner
+    dispatcher a child could be routed to, so "recurses through the same
+    runtime" is a property of the code and not of the documentation.
+
+    Terminators are deliberately NOT emitted here. The `idr` audit receipt
+    hashes the raw stdin bytes, which exist only at the top level; a child has
+    no stdin of its own. That is a difference in available INPUT, not a
+    privileged interface — every child gets the same validation, the same
+    handler table and the same error contract.
+
+    Returns the handler's exit code (0 on success).
+    """
+    handler = CMDS.get(env["cmd"])
+    emit_started(env["id"])
+    if handler is None:
+        emit_error(env["id"], "unsupported_cmd",
+                   "cmd " + repr(env["cmd"]) + " not supported by this runtime")
+        return 1
+    try:
+        return handler(env)
+    except Exception as e:
+        emit_error(env["id"], "runtime_error",
+                   type(e).__name__ + ": " + str(e))
+        return 1
+
+
 def main():
     global _AUDIT_ENABLED, _AUDIT_MODEL_VERSIONS
     raw = sys.stdin.read()
@@ -1177,23 +1310,9 @@ def main():
     _AUDIT_ENABLED = bool(flags.get("audit", False))
     _AUDIT_MODEL_VERSIONS = list(flags.get("model_versions") or [])
 
-    handler = CMDS.get(env["cmd"])
-    emit_started(env["id"])
-    if handler is None:
-        emit_error(env["id"], "unsupported_cmd",
-                   "cmd " + repr(env["cmd"]) + " not supported by this runtime")
-        _emit_terminators(env, raw)
-        return 1
-
-    try:
-        rc = handler(env)
-        _emit_terminators(env, raw)
-        return rc
-    except Exception as e:
-        emit_error(env["id"], "runtime_error",
-                   type(e).__name__ + ": " + str(e))
-        _emit_terminators(env, raw)
-        return 1
+    rc = dispatch(env)
+    _emit_terminators(env, raw)
+    return rc
 
 
 if __name__ == "__main__":

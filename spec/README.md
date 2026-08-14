@@ -3,7 +3,7 @@
 `happi-1.3.md` is the exact reference `happi.md` this suite certifies against,
 exported byte-for-byte from `CodeTonight-SA/HAL` `origin/main`.
 
-sha256: `29ccfadff930da72790598a1f31290297c7ecef7a6efa8ac0502acbde78f3a5c`
+sha256: `1d6c56d287d9963f4b5be28f534fa4efc71f6ff6f544261a7baf30bbc16e466f`
 
 Pinned reference — a conformance suite certifies against a FIXED spec version;
 bumping the pin is a reviewed change. CI runs against this committed file, so
