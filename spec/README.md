@@ -1,5 +1,10 @@
 # spec/ — pinned reference specification
 
+**Licence: Apache-2.0** (see the root `LICENSE`). `happi-1.3.md` keeps its
+exported bytes so that the pin below holds. Its embedded Licence paragraph
+therefore still names AGPL-3.0-only; that paragraph records the terms the file
+was first published under and is not the operative licence.
+
 `happi-1.3.md` is the exact reference `happi.md` this suite certifies against,
 exported byte-for-byte from `CodeTonight-SA/HAL` `origin/main`.
 

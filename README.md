@@ -214,14 +214,15 @@ possibilities whitepaper §10.2 ("Provider Certification") motivated the
 
 ## Licence
 
-GNU Affero General Public License v3.0 only (AGPL-3.0-only). See
-[LICENSE](LICENSE).
+Apache-2.0. See [LICENSE](LICENSE).
 
 Copyright (C) 2024-2026 Lourens Cornelius Scheepers / CodeTonight (Pty) Ltd
 
-If you run a modified version of this software as a network service, the AGPL
-requires you to offer the complete corresponding source of your modified
-version to the users of that service.
-
-**Commercial licences.** If the AGPL's network-use obligation does not fit your
-deployment, a commercial licence is available — contact licensing@codetonight.co.za.
+Anyone may run, modify and redistribute this suite, and use it to certify an
+implementation of HAPPI, open or closed source, under the Apache License,
+version 2.0, which includes an express patent grant. Earlier releases were
+published under AGPL-3.0-only. The pinned reference specification in `spec/` is
+licensed under Apache-2.0 too. It keeps its exact bytes so that its sha256 pin
+holds, which is why its embedded Licence paragraph still names AGPL-3.0-only:
+that paragraph is a historical record, not the operative licence (see
+[spec/README.md](spec/README.md)).
