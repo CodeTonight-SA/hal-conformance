@@ -221,7 +221,8 @@ Copyright (C) 2024-2026 Lourens Cornelius Scheepers / CodeTonight (Pty) Ltd
 Anyone may run, modify and redistribute this suite, and use it to certify an
 implementation of HAPPI, open or closed source, under the Apache License,
 version 2.0, which includes an express patent grant. Earlier releases were
-published under AGPL-3.0-only. The pinned reference specification in `spec/`
-keeps its exact bytes, so its own Licence section still names AGPL-3.0-only;
-as part of this repository it is licensed under Apache-2.0 too (see
+published under AGPL-3.0-only. The pinned reference specification in `spec/` is
+licensed under Apache-2.0 too. It keeps its exact bytes so that its sha256 pin
+holds, which is why its embedded Licence paragraph still names AGPL-3.0-only:
+that paragraph is a historical record, not the operative licence (see
 [spec/README.md](spec/README.md)).
